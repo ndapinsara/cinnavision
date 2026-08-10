@@ -1,4 +1,4 @@
-import { Leaf } from "lucide-react";
+import { Sprout } from "lucide-react";
 
 const columns = [
   {
@@ -46,7 +46,7 @@ const Footer = () => {
           <div>
             <div className="flex items-center gap-2.5">
               <span className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground">
-                <Leaf className="size-5" aria-hidden="true" />
+                <Sprout className="size-5" aria-hidden="true" />
               </span>
               <span className="font-display text-xl font-semibold">
                 CinnaVision

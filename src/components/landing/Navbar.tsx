@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Leaf, Menu, X } from "lucide-react";
+import { Sprout, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SignInButton, SignUpButton } from "@clerk/nextjs";
 
 const Navbar = () => {
   const [scrolled, setScrolled] = useState(false);
@@ -31,7 +32,7 @@ const Navbar = () => {
       >
         <a href="#home" className="flex min-w-0 items-center gap-2.5">
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Leaf className="size-5" aria-hidden="true" />
+            <Sprout className="size-5" aria-hidden="true" />
           </span>
           <span className="truncate font-display text-xl font-semibold tracking-tight">
             CinnaVision
@@ -40,12 +41,16 @@ const Navbar = () => {
 
         <div className="hidden items-center gap-1 lg:flex">
           <div className="ml-3 flex items-center gap-2">
-            <Button asChild variant="ghost" className="rounded-full">
-              <a href="/login">Log In</a>
-            </Button>
-            <Button asChild className="rounded-full">
-              <a href="/register">Get Started</a>
-            </Button>
+            <SignInButton mode="modal">
+              <Button asChild variant="ghost" className="rounded-full">
+                <div>Log In</div>
+              </Button>
+            </SignInButton>
+            <SignUpButton mode="modal">
+              <Button asChild className="rounded-full">
+                <div>Get Started</div>
+              </Button>
+            </SignUpButton>
           </div>
         </div>
 
