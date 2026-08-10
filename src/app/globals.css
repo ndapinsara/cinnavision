@@ -1,26 +1,142 @@
 @import "tailwindcss";
+@source "../src";
+@import "tw-animate-css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-deep: var(--primary-deep);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
+  --color-cream: var(--cream);
+  --color-sand: var(--sand);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --shadow-soft:
+    0 1px 2px oklch(0.3 0.04 150 / 0.04),
+    0 12px 32px -12px oklch(0.3 0.04 150 / 0.14);
+  --shadow-lift:
+    0 2px 4px oklch(0.3 0.04 150 / 0.05),
+    0 28px 60px -20px oklch(0.3 0.04 150 / 0.22);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+:root {
+  --radius: 1rem;
+  --background: oklch(0.985 0.01 92);
+  --foreground: oklch(0.24 0.03 152);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.03 152);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.03 152);
+  --primary: oklch(0.38 0.082 153);
+  --primary-foreground: oklch(0.985 0.01 92);
+  --primary-deep: oklch(0.26 0.055 155);
+  --secondary: oklch(0.955 0.018 88);
+  --secondary-foreground: oklch(0.3 0.05 153);
+  --muted: oklch(0.955 0.018 88);
+  --muted-foreground: oklch(0.5 0.025 140);
+  --accent: oklch(0.57 0.135 52);
+  --accent-foreground: oklch(0.99 0.008 92);
+  --accent-soft: oklch(0.93 0.035 70);
+  --cream: oklch(0.965 0.018 88);
+  --sand: oklch(0.91 0.028 82);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0.01 92);
+  --border: oklch(0.9 0.018 88);
+  --input: oklch(0.9 0.018 88);
+  --ring: oklch(0.38 0.082 153);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@utility leaf-pattern {
+  background-image:
+    radial-gradient(
+      circle at 20% 30%,
+      color-mix(in oklab, var(--color-accent) 10%, transparent) 0,
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 80% 70%,
+      color-mix(in oklab, var(--color-primary) 12%, transparent) 0,
+      transparent 45%
+    );
+}
+
+@utility glass-card {
+  background-color: color-mix(in oklab, var(--color-card) 82%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+@keyframes scanline {
+  0% {
+    top: 4%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    top: 94%;
+    opacity: 0;
+  }
+}
+
+@utility scanline {
+  animation: scanline 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
