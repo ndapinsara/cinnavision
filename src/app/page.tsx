@@ -11,8 +11,13 @@ import BenefitsSection from "@/components/landing/BenefitsSection";
 import ImpactSection from "@/components/landing/ImpactSection";
 import FinalCTA from "@/components/landing/FinalCTA";
 import Footer from "@/components/landing/Footer";
+import { redirect } from "next/navigation";
+import { getCurrentUserWithRole } from "@/lib/auth";
 
-export default function Home() {
+const Home = async () => {
+  const user = await getCurrentUserWithRole();
+  if (user) redirect("/dashboard");
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -31,4 +36,6 @@ export default function Home() {
       <Footer />
     </div>
   );
-}
+};
+
+export default Home;
