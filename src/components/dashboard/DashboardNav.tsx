@@ -9,7 +9,7 @@ import {
   LayoutDashboard,
   Microscope,
   TrendingUp,
-  ShoppingBasket,
+  Package,
   Search,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -54,9 +54,9 @@ export default function DashboardNav({
       icon: <TrendingUp className="h-5 w-5" />,
     },
     {
-      label: "Harvest Marketplace",
-      href: "/dashboard/marketplace",
-      icon: <ShoppingBasket className="h-5 w-5" />,
+      label: "My Harvest Listings",
+      href: "/dashboard/my-listings",
+      icon: <Package className="h-5 w-5" />,
     },
   ];
 
@@ -73,7 +73,7 @@ export default function DashboardNav({
     },
     {
       href: "/dashboard/farmer-listings",
-      label: "Browse Farmer Listings",
+      label: "Farmer Listings",
       icon: <Search className="h-5 w-5" />,
     },
   ];
