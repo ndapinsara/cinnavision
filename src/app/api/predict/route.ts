@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { auth } from "@clerk/nextjs/server";
 import connectDB from "@/lib/mongodb";
 import Scan from "@/lib/models/Scan";
@@ -135,6 +136,8 @@ export async function POST(req: Request) {
       imageUrl: uploaded.url,
       imagePublicId: uploaded.publicId,
     });
+    // The dashboard summarises scan history, so its cached copy is now stale
+    revalidatePath("/dashboard");
     saved = true;
   } catch (error) {
     console.error("Failed to save scan:", error);

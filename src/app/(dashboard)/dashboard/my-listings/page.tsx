@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Calendar,
   CheckCircle2,
-  ImagePlus,
   Leaf,
   Loader2,
   MapPin,
@@ -13,10 +12,10 @@ import {
   Pencil,
   Phone,
   Plus,
+  RefreshCw,
   Store,
   Tag,
   Trash2,
-  Upload,
   Weight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,103 +50,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-
-type Grade = "Alba" | "C5" | "M4" | "H1" | "H2";
-
-const GRADES: Grade[] = ["Alba", "C5", "M4", "H1", "H2"];
-const DISTRICTS = [
-  "Matara",
-  "Galle",
-  "Kalutara",
-  "Kandy",
-  "Hambantota",
-  "Colombo",
-  "Gampaha",
-];
-
-const gradeDescriptions: Record<Grade, string> = {
-  Alba: "Premium quills — highest export demand",
-  C5: "Standard export grade with strong volume",
-  M4: "Mid-grade quills for domestic & export",
-  H1: "Low-country grade, ideal for export sorting",
-  H2: "Bulk grade for processing and domestic use",
-};
-
-const gradeMarketRange: Record<Grade, { min: number; max: number }> = {
-  Alba: { min: 3800, max: 4500 },
-  C5: { min: 3400, max: 4000 },
-  M4: { min: 2900, max: 3500 },
-  H1: { min: 2600, max: 3200 },
-  H2: { min: 2200, max: 2800 },
-};
-
-type Listing = {
-  id: string;
-  weightKg: number;
-  grade: Grade;
-  pricePerKg: number;
-  phone: string;
-  district: string;
-  harvestDate: string;
-  organic: boolean;
-  note: string;
-  image: string | null;
-  postedAt: Date;
-  status: "Available" | "Reserved";
-};
-
-const demoListings: Listing[] = [
-  {
-    id: "demo-1",
-    weightKg: 180,
-    grade: "Alba",
-    pricePerKg: 4150,
-    phone: "771234567",
-    district: "Matara",
-    harvestDate: "",
-    organic: true,
-    note: "Sun-dried premium quills, ready for collection within 2 days.",
-    image: null,
-    postedAt: new Date(Date.now() - 1000 * 60 * 60 * 6),
-    status: "Available",
-  },
-  {
-    id: "demo-2",
-    weightKg: 320,
-    grade: "C5",
-    pricePerKg: 3600,
-    phone: "771234567",
-    district: "Matara",
-    harvestDate: "",
-    organic: false,
-    note: "Bulk stock from second harvest. Bags of 40 kg.",
-    image: null,
-    postedAt: new Date(Date.now() - 1000 * 60 * 60 * 30),
-    status: "Reserved",
-  },
-  {
-    id: "demo-3",
-    weightKg: 95,
-    grade: "M4",
-    pricePerKg: 3050,
-    phone: "771234567",
-    district: "Galle",
-    harvestDate: "",
-    organic: false,
-    note: "Mid-grade quills, graded and bundled.",
-    image: null,
-    postedAt: new Date(Date.now() - 1000 * 60 * 60 * 72),
-    status: "Available",
-  },
-];
+import {
+  createListing,
+  deleteListing,
+  getMyListings,
+  setListingStatus,
+  updateListing,
+  type ListingRecord,
+} from "@/lib/actions/listings";
+import {
+  DEFAULT_LISTING_DISTRICT,
+  GRADE_DESCRIPTIONS,
+  GRADE_MARKET_RANGE,
+  LISTING_DISTRICTS,
+  LISTING_GRADES,
+  MAX_NOTE_LENGTH,
+  isListingDistrict,
+  type ListingGrade,
+} from "@/lib/listing-info";
 
 const formatPhoneDisplay = (digits: string) => {
   if (digits.length !== 9) return `+94 ${digits}`;
   return `+94 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
 };
 
-const relativeTime = (date: Date) => {
-  const hours = Math.round((Date.now() - date.getTime()) / (1000 * 60 * 60));
+const relativeTime = (iso: string) => {
+  const hours = Math.round((Date.now() - new Date(iso).getTime()) / 3_600_000);
   if (hours < 1) return "Just now";
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round(hours / 24);
@@ -155,10 +83,60 @@ const relativeTime = (date: Date) => {
 };
 
 const MyHarvestListingsPage = () => {
-  const [listings, setListings] = useState<Listing[]>(demoListings);
+  // Everything below is served from MongoDB — empty until the first load resolves
+  const [listings, setListings] = useState<ListingRecord[]>([]);
+  const [defaultDistrict, setDefaultDistrict] = useState<string | null>(null);
+  const [defaultPhone, setDefaultPhone] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<Listing | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Listing | null>(null);
+  const [editing, setEditing] = useState<ListingRecord | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ListingRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Bumped by the retry button to re-run the load effect
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const result = await getMyListings();
+        if (cancelled) return;
+
+        if (!result.success) {
+          setLoadError(result.error);
+          return;
+        }
+
+        setLoadError(null);
+        setListings(result.data.listings);
+        setDefaultDistrict(result.data.defaultDistrict);
+        setDefaultPhone(result.data.defaultPhone);
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setLoadError("Could not load your listings.");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  const retryLoad = () => {
+    setIsLoading(true);
+    setLoadError(null);
+    setReloadToken((token) => token + 1);
+  };
 
   const totalValue = useMemo(
     () => listings.reduce((sum, l) => sum + l.weightKg * l.pricePerKg, 0),
@@ -173,43 +151,85 @@ const MyHarvestListingsPage = () => {
   ).length;
 
   const openAdd = () => {
+    setActionError(null);
     setEditing(null);
     setDialogOpen(true);
   };
 
-  const openEdit = (listing: Listing) => {
+  const openEdit = (listing: ListingRecord) => {
+    setActionError(null);
     setEditing(listing);
     setDialogOpen(true);
   };
 
-  const handleSave = (listing: Listing) => {
+  // The saved document comes back from the server, so the card shows what was stored
+  const handleSaved = (saved: ListingRecord) => {
     setListings((prev) => {
-      const exists = prev.some((l) => l.id === listing.id);
+      const exists = prev.some((l) => l.id === saved.id);
       return exists
-        ? prev.map((l) => (l.id === listing.id ? listing : l))
-        : [listing, ...prev];
+        ? prev.map((l) => (l.id === saved.id ? saved : l))
+        : [saved, ...prev];
     });
     setDialogOpen(false);
     setEditing(null);
   };
 
-  const confirmDelete = () => {
-    if (!deleteTarget) return;
-    setListings((prev) => prev.filter((l) => l.id !== deleteTarget.id));
-    setDeleteTarget(null);
+  const confirmDelete = async () => {
+    if (!deleteTarget || isDeleting) return;
+
+    setIsDeleting(true);
+    setActionError(null);
+
+    try {
+      const result = await deleteListing(deleteTarget.id);
+
+      if (!result.success) {
+        setActionError(result.error);
+        return;
+      }
+
+      setListings((prev) => prev.filter((l) => l.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } catch (err) {
+      console.error(err);
+      setActionError("Could not delete the listing. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const toggleStatus = (id: string) => {
+  // Switched optimistically, then rolled back if the server rejects the change
+  const toggleStatus = async (listing: ListingRecord) => {
+    if (pendingStatusId) return;
+
+    const nextStatus = listing.status === "Available" ? "Sold" : "Available";
+
+    setActionError(null);
+    setPendingStatusId(listing.id);
     setListings((prev) =>
-      prev.map((l) =>
-        l.id === id
-          ? {
-              ...l,
-              status: l.status === "Available" ? "Reserved" : "Available",
-            }
-          : l,
-      ),
+      prev.map((l) => (l.id === listing.id ? { ...l, status: nextStatus } : l)),
     );
+
+    try {
+      const result = await setListingStatus(listing.id, nextStatus);
+
+      if (!result.success) {
+        setListings((prev) =>
+          prev.map((l) => (l.id === listing.id ? listing : l)),
+        );
+        setActionError(result.error);
+        return;
+      }
+
+      const saved = result.data;
+      setListings((prev) => prev.map((l) => (l.id === saved.id ? saved : l)));
+    } catch (err) {
+      console.error(err);
+      setListings((prev) => prev.map((l) => (l.id === listing.id ? listing : l)));
+      setActionError("Could not update the listing status.");
+    } finally {
+      setPendingStatusId(null);
+    }
   };
 
   return (
@@ -250,14 +270,53 @@ const MyHarvestListingsPage = () => {
               </p>
             </div>
           </div>
-          <Button className="h-12 shrink-0 rounded-xl px-6" onClick={openAdd}>
+          <Button
+            className="h-12 shrink-0 rounded-xl px-6"
+            onClick={openAdd}
+            disabled={isLoading || !!loadError}
+          >
             <Plus className="mr-2 size-4" aria-hidden="true" />
             Add Listing
           </Button>
         </section>
 
+        {actionError && (
+          <div className="flex items-center gap-2 rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+            {actionError}
+          </div>
+        )}
+
         {/* Listings */}
-        {listings.length === 0 ? (
+        {isLoading ? (
+          <section className="grid place-items-center rounded-[1.75rem] border border-border bg-card p-12 text-center">
+            <Loader2
+              className="size-8 animate-spin text-primary"
+              aria-hidden="true"
+            />
+            <p className="mt-4 text-sm text-muted-foreground">
+              Loading your listings…
+            </p>
+          </section>
+        ) : loadError ? (
+          <section className="grid place-items-center rounded-[1.75rem] border border-dashed border-destructive/40 bg-card p-12 text-center">
+            <AlertCircle className="size-10 text-destructive" aria-hidden="true" />
+            <h2 className="mt-4 font-display text-xl">
+              Could not load your listings
+            </h2>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+              {loadError}
+            </p>
+            <Button
+              variant="outline"
+              className="mt-5 h-12 rounded-xl px-6"
+              onClick={retryLoad}
+            >
+              <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+              Try again
+            </Button>
+          </section>
+        ) : listings.length === 0 ? (
           <section className="grid place-items-center rounded-[1.75rem] border border-dashed border-border bg-card p-12 text-center">
             <Store
               className="size-10 text-muted-foreground"
@@ -294,22 +353,16 @@ const MyHarvestListingsPage = () => {
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleStatus(listing.id)}
-                    aria-label={`Mark listing as ${listing.status === "Available" ? "reserved" : "available"}`}
+                  <Badge
+                    className={cn(
+                      "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
+                      listing.status === "Available"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-accent/15 text-accent",
+                    )}
                   >
-                    <Badge
-                      className={cn(
-                        "rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide",
-                        listing.status === "Available"
-                          ? "bg-primary/10 text-primary"
-                          : "bg-accent/15 text-accent",
-                      )}
-                    >
-                      {listing.status}
-                    </Badge>
-                  </button>
+                    {listing.status}
+                  </Badge>
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -332,16 +385,6 @@ const MyHarvestListingsPage = () => {
                     </span>
                   )}
                 </div>
-
-                {listing.image && (
-                  <div className="mt-4 aspect-video w-full overflow-hidden rounded-xl border border-border">
-                    <img
-                      src={listing.image}
-                      alt={`${listing.grade} harvest`}
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                )}
 
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   <div className="rounded-xl bg-cream p-3">
@@ -376,6 +419,40 @@ const MyHarvestListingsPage = () => {
                   {formatPhoneDisplay(listing.phone)}
                 </p>
 
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-xl bg-cream px-3.5 py-3">
+                  <div>
+                    <Label
+                      htmlFor={`sold-${listing.id}`}
+                      className="text-sm font-medium"
+                    >
+                      Mark as sold
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {listing.status === "Sold"
+                        ? listing.soldAt
+                          ? `Sold ${relativeTime(listing.soldAt).toLowerCase()}`
+                          : "Buyers see this listing as sold."
+                        : "Buyers can contact you about this stock."}
+                    </p>
+                  </div>
+                  {pendingStatusId === listing.id ? (
+                    <Loader2
+                      className="size-4 shrink-0 animate-spin text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Switch
+                      id={`sold-${listing.id}`}
+                      checked={listing.status === "Sold"}
+                      onCheckedChange={() => toggleStatus(listing)}
+                      disabled={!!pendingStatusId}
+                      aria-label={`Mark ${listing.grade} listing as ${
+                        listing.status === "Sold" ? "available" : "sold"
+                      }`}
+                    />
+                  )}
+                </div>
+
                 <div className="mt-4 flex gap-2 border-t border-border pt-4">
                   <Button
                     variant="outline"
@@ -399,25 +476,28 @@ const MyHarvestListingsPage = () => {
           </section>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          Frontend preview only — no backend integration yet. Listings stay
-          local to this session.
-        </p>
-
-        <ListingDialog
-          key={editing?.id ?? "new"}
-          open={dialogOpen}
-          onOpenChange={(open) => {
-            setDialogOpen(open);
-            if (!open) setEditing(null);
-          }}
-          listing={editing}
-          onSave={handleSave}
-        />
+        {/* Mounted only once the profile defaults are in, so a new listing
+            starts from the farmer's own district and phone number */}
+        {!isLoading && !loadError && (
+          <ListingDialog
+            key={editing?.id ?? "new"}
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) setEditing(null);
+            }}
+            listing={editing}
+            defaultDistrict={defaultDistrict}
+            defaultPhone={defaultPhone}
+            onSaved={handleSaved}
+          />
+        )}
 
         <AlertDialog
           open={!!deleteTarget}
-          onOpenChange={(open) => !open && setDeleteTarget(null)}
+          onOpenChange={(open) => {
+            if (!open && !isDeleting) setDeleteTarget(null);
+          }}
         >
           <AlertDialogContent className="rounded-[1.5rem]">
             <AlertDialogHeader>
@@ -429,14 +509,24 @@ const MyHarvestListingsPage = () => {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="rounded-xl">
+              <AlertDialogCancel className="rounded-xl" disabled={isDeleting}>
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
                 className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={confirmDelete}
+                onClick={(e) => {
+                  e.preventDefault();
+                  confirmDelete();
+                }}
+                disabled={isDeleting}
               >
-                Delete listing
+                {isDeleting && (
+                  <Loader2
+                    className="mr-2 size-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                )}
+                {isDeleting ? "Deleting…" : "Delete listing"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -450,32 +540,39 @@ function ListingDialog({
   open,
   onOpenChange,
   listing,
-  onSave,
+  defaultDistrict,
+  defaultPhone,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  listing: Listing | null;
-  onSave: (listing: Listing) => void;
+  listing: ListingRecord | null;
+  defaultDistrict: string | null;
+  defaultPhone: string | null;
+  onSaved: (listing: ListingRecord) => void;
 }) {
   const isEdit = !!listing;
   const [weightKg, setWeightKg] = useState(
     listing ? String(listing.weightKg) : "",
   );
-  const [grade, setGrade] = useState<Grade>(listing?.grade ?? "Alba");
+  const [grade, setGrade] = useState<ListingGrade>(listing?.grade ?? "Alba");
   const [pricePerKg, setPricePerKg] = useState(
     listing ? String(listing.pricePerKg) : "",
   );
-  const [phone, setPhone] = useState(
-    listing ? formatPhoneInput(listing.phone) : "",
+  const [phone, setPhone] = useState(() =>
+    formatPhoneInput(listing?.phone ?? defaultPhone ?? ""),
   );
-  const [district, setDistrict] = useState(listing?.district ?? "Matara");
+  const [district, setDistrict] = useState(() => {
+    const preferred = listing?.district ?? defaultDistrict;
+    return preferred && isListingDistrict(preferred)
+      ? preferred
+      : DEFAULT_LISTING_DISTRICT;
+  });
   const [harvestDate, setHarvestDate] = useState(listing?.harvestDate ?? "");
   const [organic, setOrganic] = useState(listing?.organic ?? false);
   const [note, setNote] = useState(listing?.note ?? "");
-  const [image, setImage] = useState<string | null>(listing?.image ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const numericWeight = Number(weightKg) || 0;
   const numericPrice = Number(pricePerKg) || 0;
@@ -484,22 +581,10 @@ function ListingDialog({
 
   const isWithinRange =
     !numericPrice ||
-    (numericPrice >= gradeMarketRange[grade].min &&
-      numericPrice <= gradeMarketRange[grade].max);
+    (numericPrice >= GRADE_MARKET_RANGE[grade].min &&
+      numericPrice <= GRADE_MARKET_RANGE[grade].max);
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Please upload a photo (JPG or PNG).");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     const phoneDigits = phone.replace(/\D/g, "");
@@ -518,23 +603,35 @@ function ListingDialog({
     }
 
     setIsSubmitting(true);
-    window.setTimeout(() => {
-      setIsSubmitting(false);
-      onSave({
-        id: listing?.id ?? `local-${Date.now()}`,
+
+    try {
+      const payload = {
         weightKg: numericWeight,
         grade,
         pricePerKg: numericPrice,
         phone: phoneDigits,
         district,
-        harvestDate,
+        harvestDate: harvestDate || null,
         organic,
         note,
-        image,
-        postedAt: listing?.postedAt ?? new Date(),
-        status: listing?.status ?? "Available",
-      });
-    }, 900);
+      };
+
+      const result = listing
+        ? await updateListing(listing.id, payload)
+        : await createListing(payload);
+
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+
+      onSaved(result.data);
+    } catch (err) {
+      console.error(err);
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -566,7 +663,10 @@ function ListingDialog({
                   />
                   Cinnamon Grade
                 </Label>
-                <Select value={grade} onValueChange={(v) => setGrade(v as Grade)}>
+                <Select
+                  value={grade}
+                  onValueChange={(v) => v && setGrade(v as ListingGrade)}
+                >
                   <SelectTrigger
                     id="grade"
                     className="w-full rounded-xl data-[size=default]:h-12"
@@ -575,7 +675,7 @@ function ListingDialog({
                     <SelectValue placeholder="Select grade" />
                   </SelectTrigger>
                   <SelectContent>
-                    {GRADES.map((g) => (
+                    {LISTING_GRADES.map((g) => (
                       <SelectItem key={g} value={g}>
                         {g}
                       </SelectItem>
@@ -583,7 +683,7 @@ function ListingDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  {gradeDescriptions[grade]}
+                  {GRADE_DESCRIPTIONS[grade]}
                 </p>
               </div>
 
@@ -652,8 +752,8 @@ function ListingDialog({
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="text-muted-foreground">
                   Typical market range: LKR{" "}
-                  {gradeMarketRange[grade].min.toLocaleString()} -{" "}
-                  {gradeMarketRange[grade].max.toLocaleString()}/kg
+                  {GRADE_MARKET_RANGE[grade].min.toLocaleString()} -{" "}
+                  {GRADE_MARKET_RANGE[grade].max.toLocaleString()}/kg
                 </span>
                 {!isWithinRange && (
                   <span className="inline-flex items-center gap-1 font-medium text-accent">
@@ -721,7 +821,7 @@ function ListingDialog({
                     <SelectValue placeholder="Select district" />
                   </SelectTrigger>
                   <SelectContent>
-                    {DISTRICTS.map((d) => (
+                    {LISTING_DISTRICTS.map((d) => (
                       <SelectItem key={d} value={d}>
                         {d}
                       </SelectItem>
@@ -776,57 +876,6 @@ function ListingDialog({
             </div>
 
             <div className="grid gap-2">
-              <Label className="flex items-center gap-1.5 text-sm font-medium">
-                <ImagePlus
-                  className="size-3.5 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                Photo (optional)
-              </Label>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFile}
-                  className="hidden"
-                  aria-label="Upload harvest photo"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-12 rounded-xl px-5"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Upload className="mr-2 size-4" aria-hidden="true" />
-                  {image ? "Change photo" : "Upload photo"}
-                </Button>
-                {image && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImage(null);
-                      if (fileRef.current) fileRef.current.value = "";
-                    }}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="size-3.5" aria-hidden="true" />
-                    Remove photo
-                  </button>
-                )}
-              </div>
-              {image && (
-                <div className="relative mt-1 aspect-video w-full max-w-sm overflow-hidden rounded-2xl border border-border">
-                  <img
-                    src={image}
-                    alt="Preview of harvest"
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="grid gap-2">
               <Label
                 htmlFor="note"
                 className="flex items-center gap-1.5 text-sm font-medium"
@@ -840,6 +889,7 @@ function ListingDialog({
               <Textarea
                 id="note"
                 value={note}
+                maxLength={MAX_NOTE_LENGTH}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="E.g. first harvest, sun-dried, available for collection within 3 days…"
                 className="min-h-22.5 rounded-xl"
